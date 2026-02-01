@@ -636,7 +636,12 @@ func cmdLs(cmd *cobra.Command, args []string) {
 
 	var filterDay string
 	if len(args) > 0 {
-		filterDay = strings.ToLower(args[0])
+		_, parsedDay, err := parseDay(args[0])
+		if err == nil {
+			filterDay = parsedDay
+		} else {
+			filterDay = strings.ToLower(args[0])
+		}
 	}
 
 	fmt.Printf("\nWeek %s (%s)\n", week, weekDateRange(week))
