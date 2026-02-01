@@ -116,6 +116,17 @@ Uses pure-Go SQLite (`modernc.org/sqlite`), no CGO. Build anywhere:
 GOOS=linux GOARCH=amd64 go build -o wk .
 ```
 
+## AI Agent Integration
+
+The CLI is agent-friendly. To add as a Claude Code slash command:
+
+```bash
+mkdir -p ~/.claude/commands
+cp skills/wk-planner.md ~/.claude/commands/wk.md
+```
+
+Then use `/wk` in any Claude Code session to load the skill.
+
 ## License
 
 MIT
