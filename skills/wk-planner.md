@@ -2,6 +2,24 @@
 
 Use this skill when the user asks to plan their week, schedule time blocks, track what they actually did, or review their schedule. Trigger phrases: "plan my week", "schedule", "time block", "what's on my calendar", "add to my schedule", "track my time".
 
+## Prerequisites
+
+Before using wk commands, verify it's installed:
+
+```bash
+which wk || echo "wk not found"
+```
+
+If not installed:
+```bash
+go install github.com/alrawas/wk@latest
+```
+
+Ensure `$GOPATH/bin` (usually `~/go/bin`) is in PATH. If still not found:
+```bash
+export PATH="$PATH:$HOME/go/bin"
+```
+
 ## Commands
 
 ```bash
