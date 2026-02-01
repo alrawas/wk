@@ -39,7 +39,8 @@ wk add 09:00-11:00 "deep work #project"
 
 # Record what actually happened
 wk actual <id> <time-range>                      # actual time for planned block
-wk actual --unplanned <time-range> "<desc>"      # unplanned event
+wk actual --unplanned <time-range> "<desc>"      # unplanned today
+wk actual --unplanned <day> <time-range> "<desc>" # unplanned specific day
 
 # Manage blocks
 wk done <id>                                     # mark complete
@@ -67,7 +68,7 @@ wk ls --week 2025-W06                            # specific week
 Week 2025-W06 (Feb 3 - Feb 9)
 ──────────────────────────────────────────────────
 
-MONDAY
+MONDAY (Feb 3)
   [a3f2c1] ✓ 14:00-16:00 → 14:30-17:00  backend work #project
   [x7q9b2]   17:00-18:00                 team sync
   [u2p4m8] ⚡ 19:00-20:00                 emergency call #client
@@ -80,8 +81,8 @@ MONDAY
 
 User: "Schedule deep work tomorrow morning 9-11"
 ```bash
-wk add tomorrow 09:00-11:00 "deep work"
-# Note: use day name instead of "tomorrow"
+# Use the day name (e.g., if today is Monday, use tuesday)
+wk add tuesday 09:00-11:00 "deep work"
 ```
 
 User: "I have a client call Friday 2-3pm, tag it acme"
