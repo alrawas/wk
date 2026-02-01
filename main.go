@@ -610,6 +610,26 @@ func weekDateRange(week string) string {
 	return fmt.Sprintf("%s - %s", monday.Format("Jan 2"), sunday.Format("Jan 2"))
 }
 
+func dayDate(week, day string) string {
+	var year, weekNum int
+	fmt.Sscanf(week, "%d-W%d", &year, &weekNum)
+
+	jan1 := time.Date(year, 1, 1, 0, 0, 0, 0, time.Local)
+	daysToMonday := int(time.Monday - jan1.Weekday())
+	if daysToMonday > 0 {
+		daysToMonday -= 7
+	}
+	firstMonday := jan1.AddDate(0, 0, daysToMonday)
+	monday := firstMonday.AddDate(0, 0, (weekNum-1)*7)
+
+	dayOffsets := map[string]int{
+		"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+		"friday": 4, "saturday": 5, "sunday": 6,
+	}
+	targetDate := monday.AddDate(0, 0, dayOffsets[day])
+	return targetDate.Format("Jan 2")
+}
+
 func cmdLs(cmd *cobra.Command, args []string) {
 	week := getWeek(cmd)
 	days := []string{"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
@@ -654,7 +674,7 @@ func cmdLs(cmd *cobra.Command, args []string) {
 			continue
 		}
 
-		fmt.Printf("\n%s\n", strings.ToUpper(day))
+		fmt.Printf("\n%s (%s)\n", strings.ToUpper(day), dayDate(week, day))
 
 		for _, b := range blocks {
 			tagStr := ""
