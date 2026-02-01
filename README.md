@@ -8,8 +8,8 @@ Week 2025-W06 (Feb 3 - Feb 9)
 
 MONDAY
   [a3f2c1] ✓ 14:00-16:00 → 14:30-17:00  backend work #booq
-  [x7q9b2]   17:00-18:00                 call Eison
-  [u2p4m8] ⚡ 19:00-20:00                 emergency client call #hongkong
+  [x7q9b2]   17:00-18:00                 team sync
+  [u2p4m8] ⚡ 19:00-20:00                 emergency client call #acme
   • energy was decent, got distracted mid-afternoon
 ```
 
@@ -55,7 +55,7 @@ wk actual <id> 19:00-20:30
 
 # Unplanned events
 wk actual --unplanned 14:00-15:00 "emergency call"
-wk actual --unplanned monday 15:00-17:00 "client sync #hongkong"
+wk actual --unplanned monday 15:00-17:00 "client sync #acme"
 ```
 
 ### Status
