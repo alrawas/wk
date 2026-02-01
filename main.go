@@ -692,15 +692,16 @@ func cmdLs(cmd *cobra.Command, args []string) {
 				continue
 			}
 
-			status := " "
+			status := "   " // 3 spaces (no symbol)
 			if b.IsDone {
-				status = "✓"
+				status = "✓  " // checkmark (1 col) + 2 spaces = 3 cols
 			}
 			if b.IsUnplanned {
-				status = "⚡"
+				status = "⚡ " // emoji (2 cols) + 1 space = 3 cols
 			}
 
 			timeStr := ""
+			timeWidth := 25 // max: "HH:MM-HH:MM → HH:MM-HH:MM"
 			if b.IsUnplanned {
 				timeStr = fmt.Sprintf("%s-%s", b.ActualStart.String, b.ActualEnd.String)
 			} else if b.ActualStart.Valid {
@@ -710,8 +711,13 @@ func cmdLs(cmd *cobra.Command, args []string) {
 			} else {
 				timeStr = fmt.Sprintf("%s-%s", b.PlannedStart.String, b.PlannedEnd.String)
 			}
+			// Pad based on rune count (display width), not byte count
+			padding := timeWidth - len([]rune(timeStr))
+			if padding > 0 {
+				timeStr += strings.Repeat(" ", padding)
+			}
 
-			fmt.Printf("  [%s] %s %-23s %s%s\n", b.ID, status, timeStr, b.Description, tagStr)
+			fmt.Printf("  [%s] %s%s %s%s\n", b.ID, status, timeStr, b.Description, tagStr)
 		}
 	}
 	fmt.Println()
