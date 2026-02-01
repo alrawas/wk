@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Week {{.Week}}</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #0f0f0f;
+            color: #e0e0e0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #333;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .header .date-range {
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        .nav {
+            display: flex;
+            gap: 12px;
+        }
+
+        .nav a {
+            color: #888;
+            text-decoration: none;
+            padding: 6px 12px;
+            border: 1px solid #333;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .nav a:hover {
+            color: #fff;
+            border-color: #555;
+            background: #1a1a1a;
+        }
+
+        .week-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 12px;
+        }
+
+        @media (max-width: 1200px) {
+            .week-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        @media (max-width: 800px) {
+            .week-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 500px) {
+            .week-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .day {
+            background: #1a1a1a;
+            border-radius: 8px;
+            padding: 16px;
+            min-height: 200px;
+        }
+
+        .day-header {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #fff;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #333;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .block {
+            background: #252525;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+            border-left: 3px solid #444;
+        }
+
+        .block.done {
+            border-left-color: #4ade80;
+            opacity: 0.8;
+        }
+
+        .block.unplanned {
+            border-left-color: #facc15;
+        }
+
+        .block-id {
+            font-family: monospace;
+            color: #666;
+            font-size: 0.75rem;
+        }
+
+        .block-time {
+            color: #888;
+            font-size: 0.8rem;
+            margin: 4px 0;
+        }
+
+        .block-time .actual {
+            color: #60a5fa;
+        }
+
+        .block-time .arrow {
+            color: #555;
+            margin: 0 4px;
+        }
+
+        .block-desc {
+            color: #e0e0e0;
+        }
+
+        .block-status {
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        .note {
+            color: #888;
+            font-size: 0.85rem;
+            padding: 8px 0;
+            padding-left: 12px;
+            border-left: 2px solid #333;
+            margin-bottom: 8px;
+            font-style: italic;
+        }
+
+        .empty {
+            color: #444;
+            font-size: 0.85rem;
+            font-style: italic;
+        }
+
+        .tags {
+            color: #a78bfa;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>Week {{.Week}}</h1>
+            <span class="date-range">{{.DateRange}}</span>
+        </div>
+        <div class="nav">
+            <a href="?week={{.PrevWeek}}">← Prev</a>
+            <a href="/">Today</a>
+            <a href="?week={{.NextWeek}}">Next →</a>
+        </div>
+    </div>
+
+    <div class="week-grid">
+        {{range .Days}}
+        <div class="day">
+            <div class="day-header">{{.Name}}</div>
+            {{if not .Blocks}}
+                <div class="empty">No blocks</div>
+            {{end}}
+            {{range .Blocks}}
+                {{if .IsNote}}
+                    <div class="note">• {{.Description}}{{if .Tags.Valid}}{{if .Tags.String}} <span class="tags">#{{.Tags.String}}</span>{{end}}{{end}}</div>
+                {{else}}
+                    <div class="block {{if .IsDone}}done{{end}} {{if .IsUnplanned}}unplanned{{end}}">
+                        <span class="block-id">[{{.ID}}]</span>
+                        {{if .IsDone}}<span class="block-status">✓</span>{{end}}
+                        {{if .IsUnplanned}}<span class="block-status">⚡</span>{{end}}
+                        <div class="block-time">
+                            {{if .IsUnplanned}}
+                                {{.ActualStart.String}}-{{.ActualEnd.String}}
+                            {{else if .ActualStart.Valid}}
+                                {{.PlannedStart.String}}-{{.PlannedEnd.String}}
+                                <span class="arrow">→</span>
+                                <span class="actual">{{.ActualStart.String}}-{{.ActualEnd.String}}</span>
+                            {{else}}
+                                {{.PlannedStart.String}}-{{.PlannedEnd.String}}
+                            {{end}}
+                        </div>
+                        <div class="block-desc">{{.Description}}{{if .Tags.Valid}}{{if .Tags.String}} <span class="tags">#{{.Tags.String}}</span>{{end}}{{end}}</div>
+                    </div>
+                {{end}}
+            {{end}}
+        </div>
+        {{end}}
+    </div>
+</body>
+</html>
