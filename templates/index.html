@@ -171,6 +171,66 @@
             font-size: 0.75rem;
             font-weight: 500;
         }
+
+        .tag-link {
+            color: #a78bfa;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .tag-link:hover {
+            text-decoration: underline;
+            color: #c4b5fd;
+        }
+
+        .filter-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            padding: 10px 14px;
+            background: #1a1a1a;
+            border-radius: 6px;
+            border: 1px solid #333;
+            font-size: 0.85rem;
+        }
+
+        .filter-bar .label {
+            color: #888;
+        }
+
+        .filter-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: #2d2554;
+            color: #c4b5fd;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+        }
+
+        .filter-tag a {
+            color: #888;
+            text-decoration: none;
+            margin-left: 4px;
+            font-size: 0.9rem;
+        }
+
+        .filter-tag a:hover {
+            color: #fff;
+        }
+
+        .clear-filters {
+            color: #888;
+            text-decoration: none;
+            font-size: 0.8rem;
+            margin-left: 8px;
+        }
+
+        .clear-filters:hover {
+            color: #fff;
+        }
     </style>
 </head>
 <body>
@@ -180,11 +240,21 @@
             <span class="date-range">{{.DateRange}}</span>
         </div>
         <div class="nav">
-            <a href="?week={{.PrevWeek}}">← Prev</a>
-            <a href="/">Today</a>
-            <a href="?week={{.NextWeek}}">Next →</a>
+            <a href="?week={{.PrevWeek}}{{if .FilterTags}}&tags={{joinTags .FilterTags}}{{end}}">← Prev</a>
+            <a href="/?{{if .FilterTags}}tags={{joinTags .FilterTags}}{{end}}">Today</a>
+            <a href="?week={{.NextWeek}}{{if .FilterTags}}&tags={{joinTags .FilterTags}}{{end}}">Next →</a>
         </div>
     </div>
+
+    {{if .FilterTags}}
+    <div class="filter-bar">
+        <span class="label">Filtered by:</span>
+        {{range .FilterTags}}
+            <span class="filter-tag">#{{.}}<a href="javascript:void(0)" onclick="removeTag('{{.}}')" title="Remove">×</a></span>
+        {{end}}
+        <a class="clear-filters" href="?week={{.Week}}">Clear all</a>
+    </div>
+    {{end}}
 
     <div class="week-grid">
         {{range .Days}}
@@ -195,7 +265,7 @@
             {{end}}
             {{range .Blocks}}
                 {{if .IsNote}}
-                    <div class="note">• {{.Description}}{{if .Tags.Valid}}{{if .Tags.String}} <span class="tags">#{{.Tags.String}}</span>{{end}}{{end}}</div>
+                    <div class="note">• {{.Description}}{{if .Tags.Valid}}{{if .Tags.String}} <span class="tags">{{range splitTags .Tags.String}} <a class="tag-link" onclick="addTag('{{.}}')">#{{.}}</a>{{end}}</span>{{end}}{{end}}</div>
                 {{else}}
                     <div class="block {{if .IsDone}}done{{end}} {{if .IsUnplanned}}unplanned{{end}}">
                         <span class="block-id">[{{.ID}}]</span>
@@ -212,12 +282,43 @@
                                 {{.PlannedStart.String}}-{{.PlannedEnd.String}}
                             {{end}}
                         </div>
-                        <div class="block-desc">{{.Description}}{{if .Tags.Valid}}{{if .Tags.String}} <span class="tags">#{{.Tags.String}}</span>{{end}}{{end}}</div>
+                        <div class="block-desc">{{.Description}}{{if .Tags.Valid}}{{if .Tags.String}} <span class="tags">{{range splitTags .Tags.String}} <a class="tag-link" onclick="addTag('{{.}}')">#{{.}}</a>{{end}}</span>{{end}}{{end}}</div>
                     </div>
                 {{end}}
             {{end}}
         </div>
         {{end}}
     </div>
+    <script>
+        function getParams() {
+            return new URLSearchParams(window.location.search);
+        }
+
+        function getCurrentTags() {
+            var tags = getParams().get('tags');
+            if (!tags) return [];
+            return tags.split(',').filter(function(t) { return t.length > 0; });
+        }
+
+        function addTag(tag) {
+            var tags = getCurrentTags();
+            if (tags.indexOf(tag) !== -1) return;
+            tags.push(tag);
+            var params = getParams();
+            params.set('tags', tags.join(','));
+            window.location.search = params.toString();
+        }
+
+        function removeTag(tag) {
+            var tags = getCurrentTags().filter(function(t) { return t !== tag; });
+            var params = getParams();
+            if (tags.length > 0) {
+                params.set('tags', tags.join(','));
+            } else {
+                params.delete('tags');
+            }
+            window.location.search = params.toString();
+        }
+    </script>
 </body>
 </html>
