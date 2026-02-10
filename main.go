@@ -111,6 +111,7 @@ func main() {
 	lsCmd.Flags().Bool("last", false, "Show last week")
 	lsCmd.Flags().Bool("next", false, "Show next week")
 	lsCmd.Flags().String("week", "", "Show specific week (e.g., 2025-W06)")
+	lsCmd.Flags().String("tag", "", "Filter by tags (comma-separated, e.g., work,urgent)")
 
 	// wk serve
 	serveCmd := &cobra.Command{
@@ -330,6 +331,52 @@ func extractTags(desc string, flagTag string) (cleanDesc string, tags string) {
 		tags = strings.Join(uniqueTags, ",")
 	}
 	return cleanDesc, tags
+}
+
+// filterBlocksByTags returns only blocks that match at least one of the given filter tags.
+func filterBlocksByTags(blocks []Block, filterTags []string) []Block {
+	if len(filterTags) == 0 {
+		return blocks
+	}
+	tagSet := make(map[string]bool)
+	for _, t := range filterTags {
+		t = strings.TrimSpace(strings.ToLower(t))
+		if t != "" {
+			tagSet[t] = true
+		}
+	}
+	if len(tagSet) == 0 {
+		return blocks
+	}
+	var filtered []Block
+	for _, b := range blocks {
+		if !b.Tags.Valid || b.Tags.String == "" {
+			continue
+		}
+		for _, bt := range strings.Split(b.Tags.String, ",") {
+			if tagSet[strings.TrimSpace(bt)] {
+				filtered = append(filtered, b)
+				break
+			}
+		}
+	}
+	return filtered
+}
+
+// parseTags splits a comma-separated tag string into a slice, trimming and lowering each.
+func parseTags(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	var tags []string
+	for _, p := range parts {
+		p = strings.TrimSpace(strings.ToLower(p))
+		if p != "" {
+			tags = append(tags, p)
+		}
+	}
+	return tags
 }
 
 func cmdAdd(cmd *cobra.Command, args []string) {
@@ -644,7 +691,13 @@ func cmdLs(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	tagFlag, _ := cmd.Flags().GetString("tag")
+	filterTags := parseTags(tagFlag)
+
 	fmt.Printf("\nWeek %s (%s)\n", week, weekDateRange(week))
+	if len(filterTags) > 0 {
+		fmt.Printf("Filtering by tags: #%s\n", strings.Join(filterTags, " #"))
+	}
 	fmt.Println(strings.Repeat("─", 50))
 
 	for _, day := range days {
@@ -674,6 +727,8 @@ func cmdLs(cmd *cobra.Command, args []string) {
 			blocks = append(blocks, b)
 		}
 		rows.Close()
+
+		blocks = filterBlocksByTags(blocks, filterTags)
 
 		if len(blocks) == 0 && filterDay == "" {
 			continue
@@ -726,7 +781,18 @@ func cmdLs(cmd *cobra.Command, args []string) {
 func cmdServe(cmd *cobra.Command, args []string) {
 	port, _ := cmd.Flags().GetInt("port")
 
-	tmpl, err := template.ParseFS(templateFS, "templates/*.html")
+	funcMap := template.FuncMap{
+		"splitTags": func(s string) []string {
+			if s == "" {
+				return nil
+			}
+			return strings.Split(s, ",")
+		},
+		"joinTags": func(tags []string) string {
+			return strings.Join(tags, ",")
+		},
+	}
+	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templateFS, "templates/*.html")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing templates: %v\n", err)
 		os.Exit(1)
@@ -739,17 +805,21 @@ func cmdServe(cmd *cobra.Command, args []string) {
 			week = fmt.Sprintf("%d-W%02d", year, isoWeek)
 		}
 
+		filterTags := parseTags(r.URL.Query().Get("tags"))
+
 		days := []string{"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
 		data := struct {
-			Week      string
-			DateRange string
-			Days      []DayData
-			PrevWeek  string
-			NextWeek  string
+			Week       string
+			DateRange  string
+			Days       []DayData
+			PrevWeek   string
+			NextWeek   string
+			FilterTags []string
 		}{
-			Week:      week,
-			DateRange: weekDateRange(week),
-			Days:      make([]DayData, 0),
+			Week:       week,
+			DateRange:  weekDateRange(week),
+			Days:       make([]DayData, 0),
+			FilterTags: filterTags,
 		}
 
 		// Calculate prev/next weeks
@@ -776,21 +846,23 @@ func cmdServe(cmd *cobra.Command, args []string) {
 			rows, _ := db.Query(`
 				SELECT id, description, planned_start, planned_end, actual_start, actual_end, is_note, is_unplanned, is_done, tags
 				FROM blocks WHERE week = ? AND day = ?
-				ORDER BY 
-					CASE WHEN planned_start IS NOT NULL THEN planned_start 
-					     WHEN actual_start IS NOT NULL THEN actual_start 
+				ORDER BY
+					CASE WHEN planned_start IS NOT NULL THEN planned_start
+					     WHEN actual_start IS NOT NULL THEN actual_start
 					     ELSE '99:99' END,
 					created_at
 			`, week, day)
 
+			var blocks []Block
 			for rows.Next() {
 				var b Block
 				rows.Scan(&b.ID, &b.Description, &b.PlannedStart, &b.PlannedEnd,
 					&b.ActualStart, &b.ActualEnd, &b.IsNote, &b.IsUnplanned, &b.IsDone, &b.Tags)
-				dayData.Blocks = append(dayData.Blocks, b)
+				blocks = append(blocks, b)
 			}
 			rows.Close()
 
+			dayData.Blocks = filterBlocksByTags(blocks, filterTags)
 			data.Days = append(data.Days, dayData)
 		}
 
