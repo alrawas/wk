@@ -182,7 +182,7 @@ func generateID() string {
 	return hex.EncodeToString(bytes)
 }
 
-// parseDay handles: monday, +monday (next week), 2025-02-10 (explicit date), today
+// parseDay handles: monday, +monday (next week), ~monday (last week), 2025-02-10 (explicit date), today
 func parseDay(input string) (week string, day string, err error) {
 	input = strings.ToLower(strings.TrimSpace(input))
 
@@ -216,10 +216,14 @@ func parseDay(input string) (week string, day string, err error) {
 		return week, day, nil
 	}
 
-	// Next week: +monday
+	// Next week: +monday / Last week: ~monday
 	nextWeek := false
+	lastWeek := false
 	if strings.HasPrefix(input, "+") {
 		nextWeek = true
+		input = input[1:]
+	} else if strings.HasPrefix(input, "~") {
+		lastWeek = true
 		input = input[1:]
 	}
 
@@ -234,6 +238,12 @@ func parseDay(input string) (week string, day string, err error) {
 		if isoWeek > 52 {
 			year++
 			isoWeek = 1
+		}
+	} else if lastWeek {
+		isoWeek--
+		if isoWeek < 1 {
+			year--
+			isoWeek = 52
 		}
 	}
 
