@@ -243,6 +243,7 @@
             <a href="?week={{.PrevWeek}}{{if .FilterTags}}&tags={{joinTags .FilterTags}}{{end}}">← Prev</a>
             <a href="/?{{if .FilterTags}}tags={{joinTags .FilterTags}}{{end}}">Today</a>
             <a href="?week={{.NextWeek}}{{if .FilterTags}}&tags={{joinTags .FilterTags}}{{end}}">Next →</a>
+            <a href="/month{{if .FilterTags}}?tags={{joinTags .FilterTags}}{{end}}">Month View</a>
         </div>
     </div>
 

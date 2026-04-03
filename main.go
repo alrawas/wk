@@ -1107,6 +1107,170 @@ func cmdServe(cmd *cobra.Command, args []string) {
 		tmpl.ExecuteTemplate(w, "index.html", data)
 	})
 
+	http.HandleFunc("/month", func(w http.ResponseWriter, r *http.Request) {
+		monthParam := r.URL.Query().Get("month")
+		if monthParam == "" {
+			now := time.Now()
+			monthParam = fmt.Sprintf("%d-%02d", now.Year(), now.Month())
+		}
+
+		var year, monthNum int
+		if _, err := fmt.Sscanf(monthParam, "%d-%d", &year, &monthNum); err != nil || monthNum < 1 || monthNum > 12 {
+			http.Error(w, "Invalid month format (expected YYYY-MM)", http.StatusBadRequest)
+			return
+		}
+		month := time.Month(monthNum)
+
+		filterTags := parseTags(r.URL.Query().Get("tags"))
+		weeks := getMonthWeeks(year, month)
+
+		// Collect blocks grouped by date
+		type dayEntry struct {
+			date         time.Time
+			week         string
+			hours        float64
+			descriptions []string
+		}
+		dayMap := make(map[string]*dayEntry)
+
+		for _, week := range weeks {
+			rows, err := db.Query(`
+				SELECT id, week, day, description, planned_start, planned_end, actual_start, actual_end, is_note, is_unplanned, is_done, tags
+				FROM blocks WHERE week = ?
+				ORDER BY
+					CASE WHEN planned_start IS NOT NULL THEN planned_start
+					     WHEN actual_start IS NOT NULL THEN actual_start
+					     ELSE '99:99' END,
+					created_at
+			`, week)
+			if err != nil {
+				continue
+			}
+
+			for rows.Next() {
+				var b Block
+				rows.Scan(&b.ID, &b.Week, &b.Day, &b.Description, &b.PlannedStart, &b.PlannedEnd,
+					&b.ActualStart, &b.ActualEnd, &b.IsNote, &b.IsUnplanned, &b.IsDone, &b.Tags)
+
+				filtered := filterBlocksByTags([]Block{b}, filterTags)
+				if len(filtered) == 0 {
+					continue
+				}
+
+				d := dayToDate(week, b.Day)
+				if d.Month() != month || d.Year() != year {
+					continue
+				}
+
+				key := d.Format("2006-01-02")
+				if _, ok := dayMap[key]; !ok {
+					dayMap[key] = &dayEntry{date: d, week: week}
+				}
+
+				h := blockHours(b)
+				dayMap[key].hours += h
+
+				if !b.IsNote && h > 0 {
+					desc := b.Description
+					if b.Tags.Valid && b.Tags.String != "" {
+						tagParts := strings.Split(b.Tags.String, ",")
+						for _, t := range tagParts {
+							desc += " <a class=\"tag-link\" onclick=\"addTag('" + template.HTMLEscapeString(strings.TrimSpace(t)) + "')\">#" + template.HTMLEscapeString(strings.TrimSpace(t)) + "</a>"
+						}
+					}
+					found := false
+					for _, existing := range dayMap[key].descriptions {
+						if existing == desc {
+							found = true
+							break
+						}
+					}
+					if !found {
+						dayMap[key].descriptions = append(dayMap[key].descriptions, desc)
+					}
+				}
+			}
+			rows.Close()
+		}
+
+		// Sort dates
+		var dates []string
+		for k := range dayMap {
+			dates = append(dates, k)
+		}
+		sort.Strings(dates)
+
+		// Build table rows
+		var tableRows []MonthRow
+		currentWeek := ""
+		weekTotal := 0.0
+		var grandTotal float64
+
+		for i, key := range dates {
+			de := dayMap[key]
+
+			if currentWeek != "" && de.week != currentWeek {
+				tableRows = append(tableRows, MonthRow{
+					Type:  "subtotal",
+					Hours: fmt.Sprintf("%.1f", weekTotal),
+					Label: weekShort(currentWeek) + " subtotal",
+				})
+				weekTotal = 0
+			}
+			currentWeek = de.week
+
+			hours := math.Round(de.hours*10) / 10
+			weekTotal += hours
+			grandTotal += hours
+
+			descHTML := template.HTML(strings.Join(de.descriptions, "; "))
+			tableRows = append(tableRows, MonthRow{
+				Type:     "day",
+				Date:     de.date.Format("Jan 2"),
+				DayName:  de.date.Format("Mon"),
+				Hours:    fmt.Sprintf("%.1f", hours),
+				DescHTML: descHTML,
+			})
+
+			if i == len(dates)-1 {
+				tableRows = append(tableRows, MonthRow{
+					Type:  "subtotal",
+					Hours: fmt.Sprintf("%.1f", weekTotal),
+					Label: weekShort(currentWeek) + " subtotal",
+				})
+			}
+		}
+
+		tableRows = append(tableRows, MonthRow{
+			Type:  "total",
+			Hours: fmt.Sprintf("%.1f", grandTotal),
+		})
+
+		// Prev/next month
+		prevMonth := time.Date(year, month-1, 1, 0, 0, 0, 0, time.Local)
+		nextMonth := time.Date(year, month+1, 1, 0, 0, 0, 0, time.Local)
+
+		data := struct {
+			MonthName  string
+			MonthParam string
+			Year       int
+			Rows       []MonthRow
+			PrevMonth  string
+			NextMonth  string
+			FilterTags []string
+		}{
+			MonthName:  month.String(),
+			MonthParam: monthParam,
+			Year:       year,
+			Rows:       tableRows,
+			PrevMonth:  fmt.Sprintf("%d-%02d", prevMonth.Year(), prevMonth.Month()),
+			NextMonth:  fmt.Sprintf("%d-%02d", nextMonth.Year(), nextMonth.Month()),
+			FilterTags: filterTags,
+		}
+
+		tmpl.ExecuteTemplate(w, "month.html", data)
+	})
+
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	fmt.Printf("🗓️  Week viewer running at http://%s\n", addr)
 	fmt.Println("Press Ctrl+C to stop")
@@ -1120,4 +1284,14 @@ func cmdServe(cmd *cobra.Command, args []string) {
 type DayData struct {
 	Name   string
 	Blocks []Block
+}
+
+// MonthRow represents a row in the month HTML table (day, subtotal, or total).
+type MonthRow struct {
+	Type    string // "day", "subtotal", "total"
+	Date    string
+	DayName string
+	Hours   string
+	DescHTML template.HTML
+	Label   string
 }
