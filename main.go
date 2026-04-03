@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html/template"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -112,6 +114,7 @@ func main() {
 	lsCmd.Flags().Bool("next", false, "Show next week")
 	lsCmd.Flags().String("week", "", "Show specific week (e.g., 2025-W06)")
 	lsCmd.Flags().String("tag", "", "Filter by tags (comma-separated, e.g., work,urgent)")
+	lsCmd.Flags().String("month", "", "Show monthly summary (e.g., 2026-03)")
 
 	// wk serve
 	serveCmd := &cobra.Command{
@@ -687,7 +690,232 @@ func dayDate(week, day string) string {
 	return targetDate.Format("Jan 2")
 }
 
+// dayToDate reconstructs a time.Time from an ISO week string and day name.
+func dayToDate(week, day string) time.Time {
+	var year, weekNum int
+	fmt.Sscanf(week, "%d-W%d", &year, &weekNum)
+
+	jan1 := time.Date(year, 1, 1, 0, 0, 0, 0, time.Local)
+	daysToMonday := int(time.Monday - jan1.Weekday())
+	if daysToMonday > 0 {
+		daysToMonday -= 7
+	}
+	firstMonday := jan1.AddDate(0, 0, daysToMonday)
+	monday := firstMonday.AddDate(0, 0, (weekNum-1)*7)
+
+	dayOffsets := map[string]int{
+		"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+		"friday": 4, "saturday": 5, "sunday": 6,
+	}
+	return monday.AddDate(0, 0, dayOffsets[day])
+}
+
+// blockHours calculates the duration in hours for a block.
+// Uses actual times if available, otherwise planned times. Returns 0 for notes.
+func blockHours(b Block) float64 {
+	if b.IsNote {
+		return 0
+	}
+
+	var startStr, endStr string
+	if b.ActualStart.Valid && b.ActualEnd.Valid {
+		startStr = b.ActualStart.String
+		endStr = b.ActualEnd.String
+	} else if b.PlannedStart.Valid && b.PlannedEnd.Valid {
+		startStr = b.PlannedStart.String
+		endStr = b.PlannedEnd.String
+	} else {
+		return 0
+	}
+
+	parse := func(s string) int {
+		var h, m int
+		fmt.Sscanf(s, "%d:%d", &h, &m)
+		return h*60 + m
+	}
+
+	startMin := parse(startStr)
+	endMin := parse(endStr)
+	diff := endMin - startMin
+	if diff < 0 {
+		diff += 24 * 60 // handle crossing midnight
+	}
+	return math.Round(float64(diff)/60*10) / 10 // round to 1 decimal
+}
+
+// getMonthWeeks returns all ISO week strings that overlap with the given month.
+func getMonthWeeks(year int, month time.Month) []string {
+	first := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
+	last := first.AddDate(0, 1, -1)
+
+	seen := make(map[string]bool)
+	var weeks []string
+	for d := first; !d.After(last); d = d.AddDate(0, 0, 1) {
+		y, w := d.ISOWeek()
+		wk := fmt.Sprintf("%d-W%02d", y, w)
+		if !seen[wk] {
+			seen[wk] = true
+			weeks = append(weeks, wk)
+		}
+	}
+	return weeks
+}
+
+type monthDay struct {
+	date        time.Time
+	week        string
+	hours       float64
+	descriptions []string
+}
+
+func cmdLsMonth(monthStr string, filterTags []string) {
+	// Parse "2026-03" → year, month
+	var year, monthNum int
+	if _, err := fmt.Sscanf(monthStr, "%d-%d", &year, &monthNum); err != nil || monthNum < 1 || monthNum > 12 {
+		fmt.Fprintf(os.Stderr, "Error: invalid month format: %s (expected YYYY-MM)\n", monthStr)
+		os.Exit(1)
+	}
+	month := time.Month(monthNum)
+
+	weeks := getMonthWeeks(year, month)
+
+	// Collect all blocks for the month
+	dayMap := make(map[string]*monthDay) // keyed by "2026-03-07"
+
+	for _, week := range weeks {
+		rows, err := db.Query(`
+			SELECT id, week, day, description, planned_start, planned_end, actual_start, actual_end, is_note, is_unplanned, is_done, tags
+			FROM blocks WHERE week = ?
+			ORDER BY
+				CASE WHEN planned_start IS NOT NULL THEN planned_start
+				     WHEN actual_start IS NOT NULL THEN actual_start
+				     ELSE '99:99' END,
+				created_at
+		`, week)
+		if err != nil {
+			continue
+		}
+
+		for rows.Next() {
+			var b Block
+			rows.Scan(&b.ID, &b.Week, &b.Day, &b.Description, &b.PlannedStart, &b.PlannedEnd,
+				&b.ActualStart, &b.ActualEnd, &b.IsNote, &b.IsUnplanned, &b.IsDone, &b.Tags)
+
+			// Filter by tags
+			filtered := filterBlocksByTags([]Block{b}, filterTags)
+			if len(filtered) == 0 {
+				continue
+			}
+
+			d := dayToDate(week, b.Day)
+			if d.Month() != month || d.Year() != year {
+				continue
+			}
+
+			key := d.Format("2006-01-02")
+			if _, ok := dayMap[key]; !ok {
+				dayMap[key] = &monthDay{date: d, week: week}
+			}
+
+			h := blockHours(b)
+			dayMap[key].hours += h
+
+			if !b.IsNote && h > 0 {
+				desc := b.Description
+				if b.Tags.Valid && b.Tags.String != "" {
+					desc += " #" + strings.ReplaceAll(b.Tags.String, ",", " #")
+				}
+				// Avoid duplicate descriptions on same day
+				found := false
+				for _, existing := range dayMap[key].descriptions {
+					if existing == desc {
+						found = true
+						break
+					}
+				}
+				if !found {
+					dayMap[key].descriptions = append(dayMap[key].descriptions, desc)
+				}
+			}
+		}
+		rows.Close()
+	}
+
+	// Sort dates
+	var dates []string
+	for k := range dayMap {
+		dates = append(dates, k)
+	}
+	sort.Strings(dates)
+
+	if len(dates) == 0 {
+		fmt.Printf("\n%s %d\n", month.String(), year)
+		fmt.Println(strings.Repeat("─", 66))
+		fmt.Println("\n  No entries found.\n")
+		return
+	}
+
+	// Render
+	fmt.Printf("\n%s %d\n", month.String(), year)
+	if len(filterTags) > 0 {
+		fmt.Printf("Filtering by tags: #%s\n", strings.Join(filterTags, " #"))
+	}
+	fmt.Println(strings.Repeat("─", 66))
+	fmt.Printf("\n  %-13s%-7s%6s  %s\n", "Date", "Day", "Hours", "Description")
+	fmt.Printf("  %s\n", strings.Repeat("─", 63))
+
+	var grandTotal float64
+	currentWeek := ""
+	weekTotal := 0.0
+
+	for i, key := range dates {
+		md := dayMap[key]
+
+		// Week subtotal when week changes
+		if currentWeek != "" && md.week != currentWeek {
+			fmt.Printf("  %20s%s\n", "", "─────")
+			fmt.Printf("  %-13s%-7s%5.1f\n", weekShort(currentWeek)+" subtotal", "", weekTotal)
+			fmt.Println()
+			weekTotal = 0
+		}
+		currentWeek = md.week
+
+		dayName := md.date.Format("Mon")
+		dateStr := md.date.Format("Jan 2")
+		desc := strings.Join(md.descriptions, "; ")
+
+		hours := math.Round(md.hours*10) / 10
+		weekTotal += hours
+		grandTotal += hours
+
+		fmt.Printf("  %-13s%-7s%5.1f  %s\n", dateStr, dayName, hours, desc)
+
+		// Last entry — print final week subtotal
+		if i == len(dates)-1 {
+			fmt.Printf("  %20s%s\n", "", "─────")
+			fmt.Printf("  %-13s%-7s%5.1f\n", weekShort(currentWeek)+" subtotal", "", weekTotal)
+		}
+	}
+
+	fmt.Printf("\n  %s\n", strings.Repeat("═", 63))
+	fmt.Printf("  %-13s%-7s%5.1f\n\n", "TOTAL", "", grandTotal)
+}
+
+func weekShort(week string) string {
+	var year, weekNum int
+	fmt.Sscanf(week, "%d-W%d", &year, &weekNum)
+	return fmt.Sprintf("W%d", weekNum)
+}
+
 func cmdLs(cmd *cobra.Command, args []string) {
+	// Month view
+	if monthStr, _ := cmd.Flags().GetString("month"); monthStr != "" {
+		tagFlag, _ := cmd.Flags().GetString("tag")
+		filterTags := parseTags(tagFlag)
+		cmdLsMonth(monthStr, filterTags)
+		return
+	}
+
 	week := getWeek(cmd)
 	days := []string{"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
 
